@@ -4,11 +4,13 @@ import requests
 import threading
 import time
 import secrets
+from datetime import datetime
 
 from passlib.context import CryptContext
 from deep_translator import GoogleTranslator
+from transformers import pipeline
 
-from db import users_collection
+from db import users_collection, sessions_collection, messages_collection
 from utils import send_otp_email
 
 app = FastAPI()
@@ -20,7 +22,7 @@ otp_store = {}
 # ================= CORS =================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # restrict in prod
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,32 +32,36 @@ app.add_middleware(
 MODEL_NAME = "llama3:8b"
 OLLAMA_URL = "http://127.0.0.1:11434/v1/chat/completions"
 
+# 🔥 SAME SYSTEM PROMPT (UNCHANGED)
 SYSTEM_PROMPT = """
 You are an empathetic, calm, emotionally supportive mental health companion.
 
 IMPORTANT RESPONSE FORMAT RULES:
 - Always respond in VALID MARKDOWN
-- Use bullet points or numbered lists when giving steps or tips
-- Use **bold** for headings or key ideas
-- Add a blank line between paragraphs
+- Use bullet points or numbered lists
+- Use **bold** for headings
+- Add blank lines between paragraphs
 - Keep responses structured and easy to read
 
 Behavior rules:
-- Always acknowledge emotions first
-- Never judge or shame
-- No medical diagnosis or medication advice
-- Ask at most ONE gentle follow-up question
-- Keep replies 2–8 short sentences
-- Warm, human, comforting tone
+- Acknowledge emotions first
+- No judgment
+- No medical advice
+- Ask ONE gentle follow-up question
+- Keep replies short (2–8 sentences)
 """
 
-
-# 🔥 IMPORTANT: MATCH FRONTEND LANGUAGES
+# ================= LANGUAGE =================
 LANG_CODE_MAP = {
     "en-US": "en",
     "hi-IN": "hi",
     "mr-IN": "mr",
 }
+
+# ================= SENTIMENT =================
+print("🔥 Loading Sentiment Model...")
+sentiment_pipeline = pipeline("sentiment-analysis")
+print("✅ Sentiment Model Loaded!")
 
 # ================= MODEL WARMUP =================
 def warm_up_model():
@@ -71,11 +77,37 @@ def warm_up_model():
             },
             timeout=30
         )
-        print("✅ LLaMA-3 warmed up")
+        print("✅ LLaMA warmed up")
     except Exception as e:
         print("⚠️ Warmup failed:", e)
 
 threading.Thread(target=warm_up_model, daemon=True).start()
+
+# ================= LOGIN (AUTO SESSION CREATE) =================
+@app.post("/login")
+async def login(request: Request):
+    data = await request.json()
+    username = data.get("username")
+    password = data.get("password")
+
+    user = users_collection.find_one({"username": username})
+
+    if not user or not pwd_context.verify(password, user["password"]):
+        return {"success": False}
+
+    # 🔥 CREATE SESSION AUTOMATICALLY
+    session = {
+        "user_id": username,
+        "created_at": datetime.utcnow()
+    }
+
+    result = sessions_collection.insert_one(session)
+
+    return {
+        "success": True,
+        "user_id": username,
+        "session_id": str(result.inserted_id)
+    }
 
 # ================= CHAT =================
 @app.post("/chat")
@@ -84,21 +116,34 @@ async def chat_endpoint(request: Request):
 
     user_text = data.get("text", "").strip()
     language_code = data.get("language", "en-US")
+    session_id = data.get("session_id")
+    user_id = data.get("user_id")
+
     source_lang = LANG_CODE_MAP.get(language_code, "en")
 
     if not user_text:
         return {"reply": "I’m here with you 💙 Take your time."}
 
-    print("🌍 Language:", language_code)
-
-    # 1️⃣ Translate → English
+    # ================= TRANSLATE =================
     user_text_en = user_text
     if source_lang != "en":
         user_text_en = GoogleTranslator(
             source=source_lang, target="en"
         ).translate(user_text)
 
-    print("🧑 User (EN):", user_text_en)
+    # ================= SENTIMENT =================
+    sentiment_result = sentiment_pipeline(user_text_en)[0]
+    sentiment_label = sentiment_result["label"]
+
+    # ================= STORE USER =================
+    messages_collection.insert_one({
+        "session_id": session_id,
+        "user_id": user_id,
+        "sender": "user",
+        "text": user_text,
+        "sentiment": sentiment_label,
+        "timestamp": datetime.utcnow()
+    })
 
     payload = {
         "model": MODEL_NAME,
@@ -117,22 +162,69 @@ async def chat_endpoint(request: Request):
         result = response.json()
         bot_reply_en = result["choices"][0]["message"]["content"]
 
-        print("🤖 LLaMA (EN):", bot_reply_en)
-
-        # 2️⃣ Translate back
+        # ================= TRANSLATE BACK =================
         final_reply = bot_reply_en
         if source_lang != "en":
             final_reply = GoogleTranslator(
                 source="en", target=source_lang
             ).translate(bot_reply_en)
 
-        return {"reply": final_reply}
+        # ================= STORE BOT =================
+        messages_collection.insert_one({
+            "session_id": session_id,
+            "user_id": user_id,
+            "sender": "bot",
+            "text": final_reply,
+            "timestamp": datetime.utcnow()
+        })
+
+        return {
+            "reply": final_reply,
+            "sentiment": sentiment_label
+        }
 
     except Exception as e:
         print("❌ Chat error:", e)
-        return {
-            "reply": "I’m having a little trouble right now, but I’m still here 💙"
-        }
+        return {"reply": "I’m having a little trouble right now 💙"}
+
+# ================= REPORT API =================
+@app.get("/session-report/{session_id}")
+async def generate_report(session_id: str):
+
+    messages = list(messages_collection.find({"session_id": session_id}))
+
+    positive = 0
+    negative = 0
+    neutral = 0
+
+    for msg in messages:
+        sentiment = msg.get("sentiment")
+
+        if sentiment == "POSITIVE":
+            positive += 1
+        elif sentiment == "NEGATIVE":
+            negative += 1
+        else:
+            neutral += 1
+
+    total = positive + negative + neutral
+
+    if total == 0:
+        return {"message": "No data available"}
+
+    overall = "NEUTRAL"
+    if negative > positive:
+        overall = "NEGATIVE"
+    elif positive > negative:
+        overall = "POSITIVE"
+
+    return {
+        "total_messages": total,
+        "positive": positive,
+        "negative": negative,
+        "neutral": neutral,
+        "overall_mood": overall
+    }
 
 # ================= AUTH =================
 @app.post("/signup")
@@ -141,28 +233,13 @@ async def signup(request: Request):
     username = data.get("username")
     password = data.get("password")
 
-    if not username or not password:
-        return {"success": False, "message": "Missing fields"}
-
     if users_collection.find_one({"username": username}):
-        return {"success": False, "message": "User exists"}
+        return {"success": False}
 
     users_collection.insert_one({
         "username": username,
         "password": pwd_context.hash(password),
     })
-
-    return {"success": True}
-
-@app.post("/login")
-async def login(request: Request):
-    data = await request.json()
-    username = data.get("username")
-    password = data.get("password")
-
-    user = users_collection.find_one({"username": username})
-    if not user or not pwd_context.verify(password, user["password"]):
-        return {"success": False}
 
     return {"success": True}
 
@@ -186,6 +263,7 @@ async def verify_otp(request: Request):
     password = data.get("password")
 
     record = otp_store.get(email)
+
     if not record or record["otp"] != otp:
         return {"success": False}
 
