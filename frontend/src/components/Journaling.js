@@ -52,18 +52,41 @@ const MOCK_HISTORY = [
   },
 ];
 
-function Journaling() {
+function Journaling({ userId }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [mood, setMood] = useState(null);
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null); // { type: 'success' | 'error', message: '' }
+  const [history, setHistory] = useState([]);
+  const [fetching, setFetching] = useState(true);
 
   // Update time every minute
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // Fetch journals
+  useEffect(() => {
+    const fetchJournals = async () => {
+      if (!userId) return;
+      setFetching(true);
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/journals/${userId}`);
+        const data = await res.json();
+        if (data.success) {
+          setHistory(data.journals);
+        }
+      } catch (err) {
+        console.error("Failed to fetch journals", err);
+        setToast({ type: "error", message: "Failed to load journals" });
+      } finally {
+        setFetching(false);
+      }
+    };
+    fetchJournals();
+  }, [userId]);
 
   // Clear toast after 3 seconds
   useEffect(() => {
@@ -89,22 +112,42 @@ function Journaling() {
 
     setLoading(true);
 
-    // Mock API call
-    const journalData = {
-      mood: mood.id,
-      content: content,
-      created_at: new Date().toISOString(),
-    };
+    try {
+      const res = await fetch("http://127.0.0.1:8000/journal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          mood: mood.id,
+          content: content,
+        }),
+      });
+      const data = await res.json();
 
-    console.log("Saving Journal:", journalData);
-
-    // Simulate network delay
-    setTimeout(() => {
+      if (data.success) {
+        setToast({ type: "success", message: "Journal saved successfully!" });
+        setMood(null);
+        setContent("");
+        // Refresh history
+        const refreshRes = await fetch(
+          `http://127.0.0.1:8000/journals/${userId}`,
+        );
+        const refreshData = await refreshRes.json();
+        if (refreshData.success) {
+          setHistory(refreshData.journals);
+        }
+      } else {
+        setToast({
+          type: "error",
+          message: data.message || "Failed to save journal",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to save journal", err);
+      setToast({ type: "error", message: "Server error while saving" });
+    } finally {
       setLoading(false);
-      setToast({ type: "success", message: "Journal saved successfully!" });
-      setMood(null);
-      setContent("");
-    }, 1500);
+    }
   };
 
   const getMoodObj = (id) => MOODS.find((m) => m.id === id);
@@ -204,21 +247,36 @@ function Journaling() {
         <h2>
           <FiTrendingUp /> My Previous Journals
         </h2>
-        {MOCK_HISTORY.map((entry) => {
-          const moodObj = getMoodObj(entry.mood);
-          return (
-            <div key={entry.id} className="journal-item">
-              <p>{entry.text}</p>
-              <small>
-                {entry.date} •{" "}
-                <span style={{ color: moodObj?.color }}>
-                  {moodObj?.emoji} {moodObj?.label}
-                </span>{" "}
-                • {entry.wordCount} words
-              </small>
-            </div>
-          );
-        })}
+        {fetching ? (
+          <p>Loading journals...</p>
+        ) : history.length === 0 ? (
+          <p>No journals yet. Start writing today!</p>
+        ) : (
+          history.map((entry) => {
+            const moodObj = getMoodObj(entry.mood);
+            const dateObj = new Date(entry.created_at);
+            const formattedDate = dateObj.toLocaleDateString("en-IN", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            });
+            const wordCount = entry.content
+              .split(/\s+/)
+              .filter((w) => w.length > 0).length;
+            return (
+              <div key={entry._id} className="journal-item">
+                <p>{entry.content}</p>
+                <small>
+                  {formattedDate} •{" "}
+                  <span style={{ color: moodObj?.color }}>
+                    {moodObj?.emoji} {moodObj?.label}
+                  </span>{" "}
+                  • {wordCount} words
+                </small>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* TOAST NOTIFICATION */}

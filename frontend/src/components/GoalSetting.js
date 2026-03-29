@@ -1,304 +1,227 @@
-"use client";
-
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  FiArrowLeft,
+  FiTarget,
+  FiCheckCircle,
+  FiCircle,
   FiPlus,
   FiTrash2,
-  FiEdit3,
-  FiCheckCircle,
-  FiTarget,
-  FiStar,
-  FiTrendingUp,
 } from "react-icons/fi";
 import "./GoalSetting.css";
 
-export default function GoalSetting({ onBack }) {
-  const today = new Date().toLocaleDateString("en-IN", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-
+function GoalSetting({ userId }) {
   const [goals, setGoals] = useState([]);
-  const [filter, setFilter] = useState("all");
-  const [showModal, setShowModal] = useState(false);
-
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("Mental");
-  const [duration, setDuration] = useState(30);
-  const [quote, setQuote] = useState("");
-  const [priority, setPriority] = useState(false);
-
-  /* 🔥 Load & Persist */
-  useEffect(() => {
-    const saved = localStorage.getItem("goals");
-    if (saved) setGoals(JSON.parse(saved));
-  }, []);
+  const [loading, setLoading] = useState(true);
+  const [newGoalTitle, setNewGoalTitle] = useState("");
+  const [newGoalCategory, setNewGoalCategory] = useState("Personal");
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
-    localStorage.setItem("goals", JSON.stringify(goals));
-  }, [goals]);
+    const fetchGoals = async () => {
+      if (!userId) return;
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/goals/${userId}`);
+        const data = await res.json();
+        if (data.success) {
+          setGoals(data.goals);
+        }
+      } catch (err) {
+        console.error("Failed to fetch goals", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchGoals();
+  }, [userId]);
 
-  const addGoal = () => {
-    if (!title.trim()) return;
-
-    setGoals((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        title,
-        category,
-        duration,
-        quote:
-          quote || "Small consistent steps lead to big changes 🌱",
-        progress: 0,
-        completed: false,
-        editing: false,
-        priority,
-        streak: 0,
-      },
-    ]);
-
-    setTitle("");
-    setQuote("");
-    setDuration(30);
-    setCategory("Mental");
-    setPriority(false);
-    setShowModal(false);
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
   };
 
-  const updateProgress = (id, value) => {
-    setGoals((prev) =>
-      prev.map((g) =>
-        g.id === id
-          ? {
-              ...g,
-              progress: value,
-              completed: value === 100,
-              streak: value > g.progress ? g.streak + 1 : g.streak,
-            }
-          : g
-      )
-    );
+  const handleAddGoal = async () => {
+    if (!newGoalTitle.trim()) {
+      showToast("Goal title cannot be empty", "error");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/goals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          title: newGoalTitle,
+          category: newGoalCategory,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast("Goal added successfully!");
+        setNewGoalTitle("");
+
+        // Refetch goals
+        const updatedRes = await fetch(`http://127.0.0.1:8000/goals/${userId}`);
+        const updatedData = await updatedRes.json();
+        if (updatedData.success) {
+          setGoals(updatedData.goals);
+        }
+      } else {
+        showToast("Failed to add goal", "error");
+      }
+    } catch (err) {
+      console.error("Error adding goal", err);
+      showToast("An error occurred", "error");
+    }
   };
 
-  const toggleEdit = (id) => {
-    setGoals((prev) =>
-      prev.map((g) =>
-        g.id === id ? { ...g, editing: !g.editing } : g
-      )
-    );
-  };
-
-  const togglePriority = (id) => {
-    setGoals((prev) =>
-      prev.map((g) =>
-        g.id === id ? { ...g, priority: !g.priority } : g
-      )
-    );
-  };
-
-  const updateTitle = (id, value) => {
-    setGoals((prev) =>
-      prev.map((g) =>
-        g.id === id ? { ...g, title: value } : g
-      )
-    );
-  };
-
-  const deleteGoal = (id) => {
-    setGoals((prev) => prev.filter((g) => g.id !== id));
-  };
-
-  const filteredGoals = goals.filter((g) => {
-    if (filter === "active") return !g.completed;
-    if (filter === "completed") return g.completed;
-    if (filter === "starred") return g.priority;
-    return true;
-  });
-
-  const completedCount = goals.filter((g) => g.completed).length;
-  const avgProgress =
-    goals.length === 0
-      ? 0
-      : Math.round(
-          goals.reduce((a, b) => a + b.progress, 0) / goals.length
+  const handleToggleGoal = async (goalId, currentStatus) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/goals/${goalId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: !currentStatus }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGoals(
+          goals.map((goal) =>
+            goal._id === goalId ? { ...goal, completed: !currentStatus } : goal,
+          ),
         );
+      }
+    } catch (err) {
+      console.error("Error toggling goal", err);
+    }
+  };
+
+  const handleDeleteGoal = async (goalId) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/goals/${goalId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGoals(goals.filter((goal) => goal._id !== goalId));
+        showToast("Goal deleted");
+      }
+    } catch (err) {
+      console.error("Error deleting goal", err);
+    }
+  };
+
+  const completedGoals = goals.filter((g) => g.completed).length;
+  const totalGoals = goals.length;
+  const progress =
+    totalGoals === 0 ? 0 : Math.round((completedGoals / totalGoals) * 100);
 
   return (
-    <div className="goal-setting">
-      {/* HEADER */}
-      <div className="goal-header">
-        {onBack && (
-          <button className="back-btn" onClick={onBack}>
-            <FiArrowLeft /> Back
-          </button>
-        )}
-        <div>
-          <h1>Goal Setting</h1>
-          <p>{today}</p>
-        </div>
-      </div>
-
-      {/* STATS */}
-      <div className="goal-stats">
-        <div><FiTarget /> {goals.length} Goals</div>
-        <div><FiCheckCircle /> {completedCount} Completed</div>
-        <div><FiTrendingUp /> Avg {avgProgress}%</div>
-      </div>
-
-      {/* FILTER */}
-      <div className="goal-filters">
-        {["all", "active", "completed", "starred"].map((f) => (
-          <button
-            key={f}
-            className={filter === f ? "active" : ""}
-            onClick={() => setFilter(f)}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
-
-      {/* EMPTY */}
-      {filteredGoals.length === 0 && (
-        <div className="goal-empty">
-          <FiTarget size={64} />
-          <h2>No goals here ✨</h2>
-          <p>Create something meaningful today.</p>
+    <div className="goals-container">
+      {toast && (
+        <div className={`toast-notification ${toast.type}`}>
+          <span>{toast.message}</span>
         </div>
       )}
 
-      {/* GOALS */}
-      <div className="goal-grid">
-        {filteredGoals.map((goal) => (
-          <div
-            key={goal.id}
-            className={`goal-card ${goal.completed ? "completed" : ""}`}
-          >
-            <div className="goal-top">
-              <span className={`tag ${goal.category.toLowerCase()}`}>
-                {goal.category}
-              </span>
-              <button
-                className={`star-btn ${goal.priority ? "on" : ""}`}
-                onClick={() => togglePriority(goal.id)}
-              >
-                <FiStar />
-              </button>
-            </div>
-
-            {goal.editing ? (
-              <input
-                className="edit-input"
-                value={goal.title}
-                onChange={(e) =>
-                  updateTitle(goal.id, e.target.value)
-                }
-                onBlur={() => toggleEdit(goal.id)}
-                autoFocus
-              />
-            ) : (
-              <h3>{goal.title}</h3>
-            )}
-
-            <p className="duration">
-              {goal.duration} day journey • 🔥 {goal.streak} streak
-            </p>
-
-            <div className="progress-wrap">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={goal.progress}
-                onChange={(e) =>
-                  updateProgress(goal.id, +e.target.value)
-                }
-              />
-              <span>{goal.progress}%</span>
-            </div>
-
-            <p className="quote">“{goal.quote}”</p>
-
-            <div className="goal-actions">
-              <button onClick={() => toggleEdit(goal.id)}>
-                <FiEdit3 />
-              </button>
-              <button onClick={() => deleteGoal(goal.id)}>
-                <FiTrash2 />
-              </button>
-            </div>
-          </div>
-        ))}
+      <div className="goals-header">
+        <h1>
+          <FiTarget /> Goal Setting
+        </h1>
+        <p>Set, track, and achieve your personal milestones.</p>
       </div>
 
-      {/* ADD */}
-      <button
-        className="add-goal-btn"
-        onClick={() => setShowModal(true)}
-      >
-        <FiPlus /> New Goal
-      </button>
-
-      {/* MODAL */}
-      {showModal && (
-        <div className="modal-overlay">
-          <div className="goal-modal">
-            <h2>Create Goal</h2>
-
+      <div className="goals-content">
+        <div className="add-goal-card">
+          <h2>Create New Goal</h2>
+          <div className="add-goal-form">
             <input
-              placeholder="Goal title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              type="text"
+              placeholder="What do you want to achieve?"
+              value={newGoalTitle}
+              onChange={(e) => setNewGoalTitle(e.target.value)}
             />
-
             <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              value={newGoalCategory}
+              onChange={(e) => setNewGoalCategory(e.target.value)}
             >
-              <option>Mental</option>
-              <option>Productivity</option>
-              <option>Fitness</option>
-              <option>Personal</option>
+              <option value="Personal">Personal</option>
+              <option value="Health">Health</option>
+              <option value="Career">Career</option>
+              <option value="Financial">Financial</option>
             </select>
-
-            <select
-              value={duration}
-              onChange={(e) => setDuration(+e.target.value)}
-            >
-              <option value={7}>7 Days</option>
-              <option value={30}>30 Days</option>
-              <option value={90}>90 Days</option>
-            </select>
-
-            <input
-              placeholder="Motivational quote"
-              value={quote}
-              onChange={(e) => setQuote(e.target.value)}
-            />
-
-            <label className="priority-check">
-              <input
-                type="checkbox"
-                checked={priority}
-                onChange={() => setPriority(!priority)}
-              />
-              Mark as priority
-            </label>
-
-            <div className="modal-actions">
-              <button onClick={() => setShowModal(false)}>
-                Cancel
-              </button>
-              <button className="primary" onClick={addGoal}>
-                Create
-              </button>
-            </div>
+            <button className="add-btn" onClick={handleAddGoal}>
+              <FiPlus /> Add Goal
+            </button>
           </div>
         </div>
-      )}
+
+        <div className="goals-progress-card">
+          <h2>Your Progress</h2>
+          <div className="progress-stats">
+            <div className="stat">
+              <span className="stat-value">{completedGoals}</span>
+              <span className="stat-label">Completed</span>
+            </div>
+            <div className="stat">
+              <span className="stat-value">{totalGoals}</span>
+              <span className="stat-label">Total Goals</span>
+            </div>
+          </div>
+          <div className="progress-bar-container">
+            <div
+              className="progress-bar-fill"
+              style={{ width: `${progress}%` }}
+            ></div>
+          </div>
+          <p className="progress-text">{progress}% Completed</p>
+        </div>
+
+        <div className="goals-list-card">
+          <h2>Your Goals</h2>
+          {loading ? (
+            <div className="loading-state">Loading goals...</div>
+          ) : goals.length > 0 ? (
+            <div className="goals-list">
+              {goals.map((goal) => (
+                <div
+                  key={goal._id}
+                  className={`goal-item ${goal.completed ? "completed" : ""}`}
+                >
+                  <button
+                    className="toggle-btn"
+                    onClick={() => handleToggleGoal(goal._id, goal.completed)}
+                  >
+                    {goal.completed ? (
+                      <FiCheckCircle className="checked" />
+                    ) : (
+                      <FiCircle />
+                    )}
+                  </button>
+                  <div className="goal-details">
+                    <span className="goal-title">{goal.title}</span>
+                    <span
+                      className={`goal-category cat-${goal.category.toLowerCase()}`}
+                    >
+                      {goal.category}
+                    </span>
+                  </div>
+                  <button
+                    className="delete-btn"
+                    onClick={() => handleDeleteGoal(goal._id)}
+                  >
+                    <FiTrash2 />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <p>No goals set yet. Start by adding one above!</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
+
+export default GoalSetting;

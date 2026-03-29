@@ -93,7 +93,7 @@ export default function Resources() {
 
   const toggleSave = (id) => {
     setSaved((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
     );
   };
 
@@ -111,9 +111,7 @@ export default function Resources() {
       {/* HERO */}
       <div className="resources-hero">
         <h1>Resources for Your Mind 🌿</h1>
-        <p>
-          Learn, heal, and grow at your own pace. No pressure. No judgment.
-        </p>
+        <p>Learn, heal, and grow at your own pace. No pressure. No judgment.</p>
 
         <div className="resources-search">
           <FiSearch />
@@ -149,6 +147,7 @@ export default function Resources() {
             .map((res) => (
               <div key={res.id} className="featured-card">
                 <div className="featured-content">
+                  <div className="featured-badge">Featured {res.type}</div>
                   <h3>{res.title}</h3>
                   <p>{res.description}</p>
 
@@ -164,6 +163,9 @@ export default function Resources() {
                   <button className="primary-btn">
                     <FiPlayCircle /> Explore Now
                   </button>
+                </div>
+                <div className="featured-image-placeholder">
+                  <FiBookOpen className="featured-bg-icon" />
                 </div>
               </div>
             ))}
@@ -183,28 +185,27 @@ export default function Resources() {
               </div>
 
               <button
-                className={`save-btn ${
-                  saved.includes(res.id) ? "saved" : ""
-                }`}
+                className={`save-btn ${saved.includes(res.id) ? "saved" : ""}`}
                 onClick={() => toggleSave(res.id)}
               >
                 <FiBookmark />
               </button>
             </div>
 
+            <div className="resource-category-badge">{res.category}</div>
             <h3>{res.title}</h3>
-            <p>{res.description}</p>
+            <p className="resource-desc">{res.description}</p>
 
             <div className="resource-meta">
               <span>
                 <FiClock /> {res.duration}
               </span>
-              <span>{res.level}</span>
+              <span>
+                <FiStar /> {res.level}
+              </span>
             </div>
 
-            <button className="secondary-btn">
-              Explore
-            </button>
+            <button className="secondary-btn">Explore</button>
           </div>
         ))}
       </div>

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   FiMessageSquare,
   FiCalendar,
@@ -14,7 +14,31 @@ import {
 } from "react-icons/fi";
 import "./Dashboard.css";
 
-function Dashboard({ onNavigate }) {
+function Dashboard({ onNavigate, userId, sessionId }) {
+  const [insights, setInsights] = useState(null);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+
+  useEffect(() => {
+    const fetchInsights = async () => {
+      if (!sessionId) return;
+      setLoadingInsights(true);
+      try {
+        const res = await fetch(
+          `http://127.0.0.1:8000/session-report/${sessionId}`,
+        );
+        const data = await res.json();
+        if (data.success) {
+          setInsights(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch insights", err);
+      } finally {
+        setLoadingInsights(false);
+      }
+    };
+    fetchInsights();
+  }, [sessionId]);
+
   const modules = [
     {
       id: "chat",
@@ -107,6 +131,10 @@ function Dashboard({ onNavigate }) {
       "journaling",
       "calmSounds",
       "resources",
+      "sleep",
+      "community",
+      "goals",
+      "analytics",
     ];
 
     if (implementedModules.includes(id)) {
@@ -124,6 +152,43 @@ function Dashboard({ onNavigate }) {
         <h1>Welcome Back!</h1>
         <p>How are you feeling today? Explore your wellness modules.</p>
       </div>
+
+      {insights && (
+        <div className="insights-summary">
+          <h2>
+            <FiTrendingUp color="#6366f1" /> Session Insights
+          </h2>
+          <div className="insights-content">
+            <div className="insights-stats">
+              <h3>Sentiment Breakdown</h3>
+              <div className="sentiment-counts">
+                <div className="sentiment-count positive">
+                  <span className="count">
+                    {insights.sentiment_summary.Positive || 0}
+                  </span>
+                  <span className="label">Positive</span>
+                </div>
+                <div className="sentiment-count negative">
+                  <span className="count">
+                    {insights.sentiment_summary.Negative || 0}
+                  </span>
+                  <span className="label">Negative</span>
+                </div>
+                <div className="sentiment-count neutral">
+                  <span className="count">
+                    {insights.sentiment_summary.Neutral || 0}
+                  </span>
+                  <span className="label">Neutral</span>
+                </div>
+              </div>
+            </div>
+            <div className="insights-message">
+              <h3>AI Insight</h3>
+              <p>"{insights.insight_message}"</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="modules-grid">
         {modules.map((module) => (
