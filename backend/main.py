@@ -60,7 +60,14 @@ LANG_CODE_MAP = {
 
 # ================= SENTIMENT =================
 print("🔥 Loading Sentiment Model...")
-sentiment_pipeline = pipeline("sentiment-analysis")
+# sentiment_pipeline = pipeline("sentiment-analysis")
+
+sentiment_pipeline = pipeline(
+    "sentiment-analysis",
+    model="distilbert-base-uncased-finetuned-sst-2-english",
+    local_files_only=True   # 🔥 THIS LINE FIXES YOUR ISSUE
+)
+
 print("✅ Sentiment Model Loaded!")
 
 # ================= MODEL WARMUP =================
