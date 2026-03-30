@@ -313,4 +313,3 @@ async def reset_password(request: Request):
     )
 
     del otp_store[email]
-    return {"success": True}
