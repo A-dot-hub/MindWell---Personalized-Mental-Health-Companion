@@ -17,7 +17,7 @@ import "./Meditation.css";
 const BELL_SOUND =
   "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3";
 
-function Meditation() {
+function Meditation({ userId }) {
   // State
   const [activeSession, setActiveSession] = useState(null); // 'guided', 'custom', null
   const [timer, setTimer] = useState(0); // in seconds
@@ -28,29 +28,42 @@ function Meditation() {
   const [moodAfter, setMoodAfter] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(10);
-  const [streak, setStreak] = useState(5); // Mock data
-  const [totalSessions, setTotalSessions] = useState(12);
-  const [recommendation, setRecommendation] = useState("");
+  const [streak, setStreak] = useState(0);
+  const [totalSessions, setTotalSessions] = useState(0);
+  const [recommendation, setRecommendation] = useState(
+    "Loading recommendation...",
+  );
+  const [toast, setToast] = useState(null);
 
   const audioRef = useRef(new Audio(BELL_SOUND));
   const intervalRef = useRef(null);
 
-  // Recommendations Logic
+  // Clear toast after 3 seconds
   useEffect(() => {
-    const hours = new Date().getHours();
-    if (hours < 10)
-      setRecommendation(
-        "Morning Clarity: Try the 5 min Stress Relief to start your day.",
-      );
-    else if (hours > 20)
-      setRecommendation(
-        "Sleep Hygiene: The Sleep Meditation is perfect for now.",
-      );
-    else
-      setRecommendation(
-        "Mid-day Reset: A 2 minute Quick Relax can boost your focus.",
-      );
-  }, []);
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // Fetch Meditation Stats
+  useEffect(() => {
+    const fetchStats = async () => {
+      if (!userId) return;
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/meditation/${userId}`);
+        const data = await res.json();
+        if (data.success) {
+          setStreak(data.current_streak);
+          setTotalSessions(data.total_sessions);
+          setRecommendation(data.suggestion);
+        }
+      } catch (err) {
+        console.error("Failed to fetch meditation stats", err);
+      }
+    };
+    fetchStats();
+  }, [userId]);
 
   // Timer Logic
   useEffect(() => {
@@ -118,27 +131,35 @@ function Meditation() {
     }
   };
 
-  const saveSessionData = (finalMood) => {
-    // Backend Integration Comment
-    /*
-      // API Call to save session
-      const sessionData = {
-        type: activeSession.type,
-        duration: initialTime,
-        moodBefore: moodBefore,
-        moodAfter: finalMood,
-        timestamp: new Date().toISOString()
-      };
-      
-      fetch('/api/meditation/save', { 
-        method: 'POST', 
-        body: JSON.stringify(sessionData) 
+  const saveSessionData = async (finalMood) => {
+    try {
+      const res = await fetch("http://127.0.0.1:8000/meditation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          completed: true,
+        }),
       });
-    */
+      const data = await res.json();
 
-    // Update Local Stats Mock
-    setStreak((prev) => prev + 1);
-    setTotalSessions((prev) => prev + 1);
+      if (data.success) {
+        setToast({ type: "success", message: "Session completed!" });
+        // Refresh stats
+        const statsRes = await fetch(
+          `http://127.0.0.1:8000/meditation/${userId}`,
+        );
+        const statsData = await statsRes.json();
+        if (statsData.success) {
+          setStreak(statsData.current_streak);
+          setTotalSessions(statsData.total_sessions);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to save meditation session", err);
+      setToast({ type: "error", message: "Failed to save session" });
+    }
+
     setShowMoodModal(false);
     setActiveSession(null); // Reset to menu
     setMoodBefore(null);
@@ -340,6 +361,24 @@ function Meditation() {
           )}
         </div>
       </div>
+      {/* TOAST NOTIFICATION */}
+      {toast && (
+        <div
+          className={`toast-notification ${toast.type}`}
+          style={{
+            position: "fixed",
+            bottom: "20px",
+            right: "20px",
+            padding: "12px 24px",
+            borderRadius: "8px",
+            color: "#fff",
+            zIndex: 1000,
+            backgroundColor: toast.type === "success" ? "#10b981" : "#ef4444",
+          }}
+        >
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }

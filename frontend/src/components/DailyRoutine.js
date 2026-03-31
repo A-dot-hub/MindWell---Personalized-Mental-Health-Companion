@@ -14,7 +14,7 @@ const CATEGORIES = [
 
 const MOODS = ["😄", "😊", "😐", "😔", "😴"];
 
-export default function DailyRoutine() {
+export default function DailyRoutine({ userId }) {
   const today = new Date().toLocaleDateString("en-IN", {
     weekday: "long",
     day: "numeric",
@@ -28,37 +28,93 @@ export default function DailyRoutine() {
   const [newTime, setNewTime] = useState("");
   const [category, setCategory] = useState("morning");
   const [priority, setPriority] = useState(false);
+  const [fetching, setFetching] = useState(true);
+  const [toast, setToast] = useState(null);
+
+  // Clear toast after 3 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   /* 🔐 Persist */
   useEffect(() => {
-    const saved = localStorage.getItem("dailyTasks");
-    if (saved) setTasks(JSON.parse(saved));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("dailyTasks", JSON.stringify(tasks));
-  }, [tasks]);
+    const fetchTasks = async () => {
+      if (!userId) return;
+      setFetching(true);
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/tasks/${userId}`);
+        const data = await res.json();
+        if (data.success) {
+          // Map backend tasks to frontend format
+          const formattedTasks = data.tasks.map((t) => ({
+            id: t._id,
+            title: t.title,
+            time: "Anytime", // Backend doesn't store time currently
+            category: t.category,
+            priority: false, // Backend doesn't store priority currently
+            mood: "",
+            done: t.completed,
+            editing: false,
+          }));
+          setTasks(formattedTasks);
+        }
+      } catch (err) {
+        console.error("Failed to fetch tasks", err);
+        setToast({ type: "error", message: "Failed to load tasks" });
+      } finally {
+        setFetching(false);
+      }
+    };
+    fetchTasks();
+  }, [userId]);
 
   const completedCount = tasks.filter((t) => t.done).length;
   const progress =
     tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100);
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!newTask.trim()) return;
 
-    setTasks((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        title: newTask,
-        time: newTime || "Anytime",
-        category,
-        priority,
-        mood: "",
-        done: false,
-        editing: false,
-      },
-    ]);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          title: newTask,
+          category: category,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setTasks((prev) => [
+          ...prev,
+          {
+            id: data.task_id,
+            title: newTask,
+            time: newTime || "Anytime",
+            category,
+            priority,
+            mood: "",
+            done: false,
+            editing: false,
+          },
+        ]);
+        setToast({ type: "success", message: "Task added!" });
+      } else {
+        setToast({
+          type: "error",
+          message: data.message || "Failed to add task",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to add task", err);
+      setToast({ type: "error", message: "Server error while adding task" });
+    }
 
     setNewTask("");
     setNewTime("");
@@ -67,13 +123,68 @@ export default function DailyRoutine() {
     setShowModal(false);
   };
 
-  const toggleTask = (id) =>
+  const toggleTask = async (id) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+
+    // Optimistic update
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
     );
 
-  const deleteTask = (id) =>
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/tasks/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: !task.done }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        // Revert on failure
+        setTasks((prev) =>
+          prev.map((t) => (t.id === id ? { ...t, done: task.done } : t)),
+        );
+        setToast({ type: "error", message: "Failed to update task" });
+      }
+    } catch (err) {
+      console.error("Failed to update task", err);
+      // Revert on failure
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, done: task.done } : t)),
+      );
+      setToast({ type: "error", message: "Server error while updating task" });
+    }
+  };
+
+  const deleteTask = async (id) => {
+    // Optimistic UI
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, done: true } : t)),
+    );
+
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/tasks/${id}/complete`, {
+        method: "PUT",
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        throw new Error("Failed");
+      }
+
+      setToast({ type: "success", message: "Task marked as completed ✅" });
+    } catch (err) {
+      console.error(err);
+
+      // Revert if failed
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, done: false } : t)),
+      );
+
+      setToast({ type: "error", message: "Failed to update task" });
+    }
+  };
 
   const toggleEdit = (id) =>
     setTasks((prev) =>
@@ -236,6 +347,25 @@ export default function DailyRoutine() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION */}
+      {toast && (
+        <div
+          className={`toast-notification ${toast.type}`}
+          style={{
+            position: "fixed",
+            bottom: "20px",
+            right: "20px",
+            padding: "12px 24px",
+            borderRadius: "8px",
+            color: "#fff",
+            zIndex: 1000,
+            backgroundColor: toast.type === "success" ? "#10b981" : "#ef4444",
+          }}
+        >
+          {toast.message}
         </div>
       )}
     </div>

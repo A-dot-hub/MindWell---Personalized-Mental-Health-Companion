@@ -64,7 +64,7 @@ function Login({ onLoginSuccess, onSwitch }) {
       const data = await response.json();
 
       if (data.success) {
-        onLoginSuccess(email);
+        onLoginSuccess(data.user_id, data.session_id);
       } else {
         setErrors({ form: data.message || "Invalid credentials" });
       }

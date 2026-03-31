@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FiTrendingUp, FiCalendar, FiSmile } from "react-icons/fi";
+import {
+  FiTrendingUp,
+  FiCalendar,
+  FiEdit3,
+  FiStar,
+  FiSmile,
+} from "react-icons/fi";
 import "./MoodTracker.css";
 
 const MOODS = [
@@ -23,7 +29,7 @@ const TAGS = [
   "Social",
 ];
 
-export default function MoodTracker() {
+export default function MoodTracker({ userId }) {
   const today = new Date().toDateString();
 
   const [mood, setMood] = useState(null);
@@ -32,53 +38,115 @@ export default function MoodTracker() {
   const [note, setNote] = useState("");
   const [tags, setTags] = useState([]);
   const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
+  const [toast, setToast] = useState(null);
+
+  // Clear toast after 3 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   /* LOAD */
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem("moodHistory")) || [];
-    setHistory(stored);
+    const fetchMoods = async () => {
+      if (!userId) return;
+      setFetching(true);
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/moods/${userId}`);
+        const data = await res.json();
+        if (data.success) {
+          setHistory(data.moods);
 
-    const todayEntry = stored.find((e) => e.date === today);
-    if (todayEntry) {
-      setMood(todayEntry.mood);
-      setIntensity(todayEntry.intensity);
-      setEnergy(todayEntry.energy);
-      setNote(todayEntry.note);
-      setTags(todayEntry.tags);
-    }
-  }, []);
+          // Check if today's mood is already logged
+          const todayEntry = data.moods.find((e) => {
+            const entryDate = new Date(e.created_at).toDateString();
+            return entryDate === today;
+          });
+
+          if (todayEntry) {
+            const moodObj = MOODS.find((m) => m.id === todayEntry.mood);
+            if (moodObj) setMood(moodObj);
+            setIntensity(todayEntry.intensity);
+            setEnergy(todayEntry.energy);
+            setTags(todayEntry.tags);
+            // Note is not saved in backend currently, but we can keep the state
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch moods", err);
+        setToast({ type: "error", message: "Failed to load mood history" });
+      } finally {
+        setFetching(false);
+      }
+    };
+    fetchMoods();
+  }, [userId, today]);
 
   /* SAVE */
-  const saveMood = () => {
+  const saveMood = async () => {
     if (!mood) return;
+    setLoading(true);
 
-    const entry = {
-      date: today,
-      mood,
-      intensity,
-      energy,
-      note,
-      tags,
-      score: mood.score,
-    };
+    try {
+      const res = await fetch("http://127.0.0.1:8000/mood", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          mood: mood.id,
+          intensity: parseInt(intensity),
+          energy: parseInt(energy),
+          tags: tags,
+        }),
+      });
+      const data = await res.json();
 
-    const updated = [entry, ...history.filter((e) => e.date !== today)];
-
-    setHistory(updated);
-    localStorage.setItem("moodHistory", JSON.stringify(updated));
+      if (data.success) {
+        setToast({ type: "success", message: "Mood saved successfully!" });
+        // Refresh history
+        const refreshRes = await fetch(`http://127.0.0.1:8000/moods/${userId}`);
+        const refreshData = await refreshRes.json();
+        if (refreshData.success) {
+          setHistory(refreshData.moods);
+        }
+      } else {
+        setToast({
+          type: "error",
+          message: data.message || "Failed to save mood",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to save mood", err);
+      setToast({ type: "error", message: "Server error while saving" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   /* ANALYTICS */
   const avgMood =
     history.length === 0
       ? 0
-      : (history.reduce((a, b) => a + b.score, 0) / history.length).toFixed(1);
+      : (
+          history.reduce((a, b) => {
+            const m = MOODS.find((x) => x.id === b.mood);
+            return a + (m ? m.score : 0);
+          }, 0) / history.length
+        ).toFixed(1);
 
   const streak = (() => {
     let s = 0;
     let d = new Date();
     for (let i = 0; i < history.length; i++) {
-      if (history.find((e) => e.date === d.toDateString())) {
+      if (
+        history.find(
+          (e) => new Date(e.created_at).toDateString() === d.toDateString(),
+        )
+      ) {
         s++;
         d.setDate(d.getDate() - 1);
       } else break;
@@ -181,8 +249,8 @@ export default function MoodTracker() {
       {/* SAVE */}
       {mood && (
         <div className="save-area">
-          <button className="save-btn" onClick={saveMood}>
-            Save Today’s Mood
+          <button className="save-btn" onClick={saveMood} disabled={loading}>
+            {loading ? "Saving..." : "Save Today’s Mood"}
           </button>
         </div>
       )}
@@ -219,16 +287,42 @@ export default function MoodTracker() {
           </h2>
 
           <div className="history">
-            {history.map((h, i) => (
-              <div key={i} className="history-item">
-                <span>{h.mood.emoji}</span>
-                <div>
-                  <strong>{h.mood.label}</strong>
-                  <p>{h.date}</p>
+            {history.map((h, i) => {
+              const moodObj = MOODS.find((m) => m.id === h.mood);
+              const dateStr = new Date(h.created_at).toLocaleDateString(
+                "en-IN",
+                { day: "numeric", month: "short", year: "numeric" },
+              );
+              return (
+                <div key={i} className="history-item">
+                  <span>{moodObj?.emoji || "😐"}</span>
+                  <div>
+                    <strong>{moodObj?.label || "Neutral"}</strong>
+                    <p>{dateStr}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION */}
+      {toast && (
+        <div
+          className={`toast-notification ${toast.type}`}
+          style={{
+            position: "fixed",
+            bottom: "20px",
+            right: "20px",
+            padding: "12px 24px",
+            borderRadius: "8px",
+            color: "#fff",
+            zIndex: 1000,
+            backgroundColor: toast.type === "success" ? "#10b981" : "#ef4444",
+          }}
+        >
+          {toast.message}
         </div>
       )}
     </div>

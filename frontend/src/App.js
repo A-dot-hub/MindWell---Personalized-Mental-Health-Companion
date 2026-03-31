@@ -1,6 +1,3 @@
-import React, { useState, useContext } from "react";
-import { ThemeContext } from "./ThemeContext";
-
 import Login from "./components/Login";
 import Signup from "./components/Signup";
 import Dashboard from "./components/Dashboard";
@@ -12,10 +9,12 @@ import Journaling from "./components/Journaling";
 import CalmSounds from "./components/CalmSounds";
 import Resources from "./components/Resources/Resources";
 import Meditation from "./components/Meditation"; // Imported Meditation
-
-import mediverseLogo from "./mediverseLogo.png";
-import doctorImage from "./doctor.png";
-
+import SleepHealth from "./components/SleepHealth";
+import Community from "./components/Community";
+import GoalSetting from "./components/GoalSetting";
+import Insights from "./components/Insights";
+import React, { useState, useContext } from "react";
+import { ThemeContext } from "./ThemeContext";
 import {
   FiHome,
   FiMessageSquare,
@@ -27,28 +26,46 @@ import {
   FiMenu,
   FiX,
   FiMoon, // Imported for Meditation icon
+  FiUsers,
+  FiTarget,
+  FiTrendingUp,
 } from "react-icons/fi";
 
 import "./App.css";
 
+// Placeholder images
+import mediverseLogo from "./mediverseLogo.png";
+import doctorImage from "./doctor.png";
+
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(
+    !!localStorage.getItem("user_id"),
+  );
   const [showSignup, setShowSignup] = useState(false);
   const [activeModule, setActiveModule] = useState("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [userEmail, setUserEmail] = useState("");
+  const [userId, setUserId] = useState(localStorage.getItem("user_id") || "");
+  const [sessionId, setSessionId] = useState(
+    localStorage.getItem("session_id") || "",
+  );
 
   const { darkMode } = useContext(ThemeContext);
 
-  const handleLoginSuccess = (email) => {
-    setUserEmail(email);
+  const handleLoginSuccess = (user_id, session_id) => {
+    setUserId(user_id);
+    setSessionId(session_id);
+    localStorage.setItem("user_id", user_id);
+    localStorage.setItem("session_id", session_id);
     setIsLoggedIn(true);
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
     setActiveModule("dashboard");
-    setUserEmail("");
+    setUserId("");
+    setSessionId("");
+    localStorage.removeItem("user_id");
+    localStorage.removeItem("session_id");
   };
 
   const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
@@ -168,6 +185,38 @@ function App() {
             <FiBookOpen size={20} />
             {isSidebarOpen && <span>Resources</span>}
           </button>
+
+          <button
+            className={`nav-item ${activeModule === "sleep" ? "active" : ""}`}
+            onClick={() => navigateTo("sleep")}
+          >
+            <FiActivity size={20} />
+            {isSidebarOpen && <span>Sleep Health</span>}
+          </button>
+
+          <button
+            className={`nav-item ${activeModule === "community" ? "active" : ""}`}
+            onClick={() => navigateTo("community")}
+          >
+            <FiUsers size={20} />
+            {isSidebarOpen && <span>Community</span>}
+          </button>
+
+          <button
+            className={`nav-item ${activeModule === "goals" ? "active" : ""}`}
+            onClick={() => navigateTo("goals")}
+          >
+            <FiTarget size={20} />
+            {isSidebarOpen && <span>Goal Setting</span>}
+          </button>
+
+          <button
+            className={`nav-item ${activeModule === "analytics" ? "active" : ""}`}
+            onClick={() => navigateTo("analytics")}
+          >
+            <FiTrendingUp size={20} />
+            {isSidebarOpen && <span>Insights</span>}
+          </button>
         </nav>
 
         <div className="sidebar-footer">
@@ -195,12 +244,16 @@ function App() {
               {activeModule === "journaling" && "Journaling"}
               {activeModule === "calmSounds" && "Calm Sounds"}
               {activeModule === "resources" && "Resources"}
+              {activeModule === "sleep" && "Sleep Health"}
+              {/* {activeModule === "community" && "Community"} */}
+              {/* {activeModule === "goals" && "Goal Setting"} */}
+              {activeModule === "analytics" && "Wellness Analytics"}
             </h2>
           </div>
 
           <div className="navbar-right">
             <UserMenu
-              userEmail={userEmail}
+              userEmail={userId}
               onLogout={handleLogout}
               onEnableChat={() => navigateTo("chat")}
             />
@@ -212,15 +265,27 @@ function App() {
           className={`content-scrollable ${activeModule === "chat" ? "chat-mode" : ""}`}
         >
           {activeModule === "dashboard" && (
-            <Dashboard onNavigate={navigateTo} />
+            <Dashboard
+              onNavigate={navigateTo}
+              userId={userId}
+              sessionId={sessionId}
+            />
           )}
-          {activeModule === "chat" && <Chat />}
-          {activeModule === "dailyRoutine" && <DailyRoutine />}
-          {activeModule === "meditation" && <Meditation />}
-          {activeModule === "mood" && <MoodTracker />}
-          {activeModule === "journaling" && <Journaling />}
+          {activeModule === "chat" && (
+            <Chat userId={userId} sessionId={sessionId} />
+          )}
+          {activeModule === "dailyRoutine" && <DailyRoutine userId={userId} />}
+          {activeModule === "meditation" && <Meditation userId={userId} />}
+          {activeModule === "mood" && <MoodTracker userId={userId} />}
+          {activeModule === "journaling" && <Journaling userId={userId} />}
           {activeModule === "calmSounds" && <CalmSounds />}
           {activeModule === "resources" && <Resources />}
+          {activeModule === "sleep" && <SleepHealth userId={userId} />}
+          {activeModule === "community" && <Community userId={userId} />}
+          {activeModule === "goals" && <GoalSetting userId={userId} />}
+          {activeModule === "analytics" && (
+            <Insights userId={userId} sessionId={sessionId} />
+          )}
         </div>
       </main>
     </div>

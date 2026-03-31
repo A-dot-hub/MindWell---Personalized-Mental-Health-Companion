@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useContext } from "react";
 import { ThemeContext } from "../ThemeContext";
 import {
-  FiUser,
   FiSettings,
   FiMoon,
   FiSun,

@@ -14,7 +14,9 @@ import remarkGfm from "remark-gfm";
 import mediverseLogo from "../mediverseLogo.png";
 import "./Chat.css";
 
-function Chat() {
+// const mediverseLogo = "https://picsum.photos/seed/mindwell-logo/200/200";
+
+function Chat({ userId, sessionId }) {
   const [messages, setMessages] = useState([
     {
       text: "Hello, I am **MindWell AI** 💙\n\nI'm here to listen and support you. How are you feeling right now?",
@@ -32,7 +34,7 @@ function Chat() {
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [isTTSActive, setIsTTSActive] = useState(true);
 
-  const messagesEndRef = useRef(null);
+  const messagesAreaRef = useRef(null);
   const inputRef = useRef(null);
   const langMenuRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -44,8 +46,52 @@ function Chat() {
     { code: "mr-IN", name: "Marathi" },
   ];
 
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (!userId || !sessionId) return;
+      try {
+        const res = await fetch(
+          `http://127.0.0.1:8000/chat-history/${sessionId}`,
+        );
+        const data = await res.json();
+
+        const defaultMessage = {
+          text: "Hello, I am **MindWell AI** 💙\n\nI'm here to listen and support you. How are you feeling right now?",
+          sender: "bot",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+
+        if (data.success && data.history.length > 0) {
+          const formattedHistory = data.history.map((msg) => ({
+            text: msg.text,
+            sender: msg.sender,
+            sentiment: msg.sentiment,
+            timestamp: new Date(msg.timestamp).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          }));
+          setMessages([defaultMessage, ...formattedHistory]);
+        } else {
+          setMessages([defaultMessage]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch chat history", err);
+      }
+    };
+    fetchHistory();
+  }, [userId, sessionId]);
+
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesAreaRef.current) {
+      messagesAreaRef.current.scrollTo({
+        top: messagesAreaRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
   };
 
   useEffect(() => {
@@ -114,9 +160,7 @@ function Chat() {
 
     const voice =
       voicesRef.current.find((v) => v.lang === language) ||
-      voicesRef.current.find((v) =>
-        v.lang.startsWith(language.split("-")[0]),
-      );
+      voicesRef.current.find((v) => v.lang.startsWith(language.split("-")[0]));
 
     if (voice) utter.voice = voice;
     window.speechSynthesis.speak(utter);
@@ -142,16 +186,32 @@ function Chat() {
       const res = await fetch("http://127.0.0.1:8000/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: userMessage.text, language }),
+        body: JSON.stringify({
+          text: userMessage.text,
+          language,
+          user_id: userId,
+          session_id: sessionId,
+        }),
       });
 
       const data = await res.json();
       const fullReply =
-        data.reply || data.response || "I am listening 💙";
+        data.bot_message?.text ||
+        data.reply ||
+        data.response ||
+        "I am listening 💙";
+      const sentiment = data.sentiment;
 
       const botTimestamp = new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
+      });
+
+      // Update user message with sentiment
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1].sentiment = sentiment;
+        return copy;
       });
 
       setMessages((prev) => [
@@ -180,7 +240,6 @@ function Chat() {
           speakText(fullReply);
         }
       }, 40);
-
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -252,59 +311,55 @@ function Chat() {
         </div>
       </div>
 
-    <div className="messages-area">
-  {messages.map((m, i) => (
-    <div key={i} className={`message-wrapper ${m.sender}`}>
-      <div className={`avatar-frame ${m.sender}`}>
-        {m.sender === "bot" ? (
-          <img src={mediverseLogo} alt="AI" />
-        ) : (
-          <FiUser />
+      <div className="messages-area" ref={messagesAreaRef}>
+        {messages.map((m, i) => (
+          <div key={i} className={`message-wrapper ${m.sender}`}>
+            <div className={`avatar-frame ${m.sender}`}>
+              {m.sender === "bot" ? (
+                <img src={mediverseLogo} alt="AI" />
+              ) : (
+                <FiUser />
+              )}
+            </div>
+
+            <div className="message-bubble">
+              {m.sender === "bot" ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {m.text}
+                </ReactMarkdown>
+              ) : (
+                <div>
+                  <p>{m.text}</p>
+                </div>
+              )}
+              <span className="timestamp">{m.timestamp}</span>
+            </div>
+          </div>
+        ))}
+
+        {/* ✅ ADD THIS TYPING INDICATOR */}
+        {isLoading && (
+          <div className="message-wrapper bot">
+            <div className="avatar-frame bot">
+              <img src={mediverseLogo} alt="AI" />
+            </div>
+
+            <div className="message-bubble typing-bubble">
+              <span className="typing-text">Thinking</span>
+              <span className="dot"></span>
+              <span className="dot"></span>
+              <span className="dot"></span>
+            </div>
+          </div>
         )}
       </div>
-
-      <div className="message-bubble">
-        {m.sender === "bot" ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {m.text}
-          </ReactMarkdown>
-        ) : (
-          <p>{m.text}</p>
-        )}
-        <span className="timestamp">{m.timestamp}</span>
-      </div>
-    </div>
-  ))}
-
-  {/* ✅ ADD THIS TYPING INDICATOR */}
-  {isLoading && (
-    <div className="message-wrapper bot">
-      <div className="avatar-frame bot">
-        <img src={mediverseLogo} alt="AI" />
-      </div>
-
-      <div className="message-bubble typing-bubble">
-        <span className="typing-text"><b>MindWell AI</b> 💙 is typing!!</span>
-        <span className="dot"></span>
-        <span className="dot"></span>
-        <span className="dot"></span>
-      </div>
-    </div>
-  )}
-
-  <div ref={messagesEndRef} />
-</div>
 
       <div className="input-area">
         <div
-          className={`input-container ${
-            isListening ? "listening-active" : ""
-          }`}
+          className={`input-container ${isListening ? "listening-active" : ""}`}
         >
           <button
-            className={`mic-btn ${
-              isListening ? "is-listening" : ""
-            }`}
+            className={`mic-btn ${isListening ? "is-listening" : ""}`}
             onClick={handleMicClick}
           >
             {isListening ? <FiMicOff /> : <FiMic />}
