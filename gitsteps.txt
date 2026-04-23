@@ -145,3 +145,10 @@ show dbs
 db.users.deleteOne({
   _id: ObjectId("68ce371a0f0aac5f1da64e71")
 })
+
+
+
+now always push in your own repo not jayesh
+git add .
+git commit -m "Your message"
+git push abhishek-work main
